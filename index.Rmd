@@ -1,17 +1,17 @@
 ---
 title: "텍스트 데이터 분석"
 description: |
-  상담센터의 통화 텍스트로 상담 콜을 이해하고, 민원을 유발하는 통화를 예측해 봅니다.
+  내가 생각하는 텍스트 분석과 기대하는 텍스트 분석을 정리해 봅니다.
 site: distill::distill_website
 output:
   distill::distill_article:
     toc: true
     toc_depth: 3  
 author:
-  - name: 유충현 
-    url: https://choonghyunryu.github.io/
-    affiliation: 한국 R 사용자회
-    affiliation_url: https://r2bit.com/   
+  - name: 박성은 
+    url: https://alice3153.github.io/
+    affiliation: 명지대학교 기록정보과학전문대학원
+    affiliation_url: https://record.mju.ac.kr/
 date: "`r Sys.Date()`" 
 ---
 
@@ -20,26 +20,14 @@ knitr::opts_chunk$set(echo = FALSE)
 ```
 
 
-# STT 텍스트 분석
+# 내가 기대하는 텍스트 분석
 
-음성 인식(Speech Recognition)이란 사람이 말하는 음성 언어를 컴퓨터가 해석해 그 내용을 문자 데이터로 전환하는 처리를 말합니다. **STT(Speech-to-Text)**라고도 합니다. 
+오늘날 우리가 어떠한 일을 하고 있는 이 순간에도 방대한 양의 다양한 데이터들이 생성되고 있다. 이러한 정보의 홍수 속에서 원하는 정보를 모두 찾아내기란 쉽지 않은 일이다. 그 중에서도 **텍스트 데이터**는 우리가 문자로 된 언어를 사용하는 한 지속적으로 생성되고 존재할 것이다.
 
-상담센터의 상담 내용을 텍스트화한 STT 데이터를 **자연어 처리(NLP, Natural Language Processing)하여 함축되어 있는 고객의 의도를 이해**합니다.
-
-<br>
-
-```{r network, echo=FALSE, out.width = "55%", fig.align='center'}
-knitr::include_graphics("img/what-is-text-analysis.png")
-```
-
-
-# 민원 상담콜 분석
-
-상담콜 중에서 민원으로 전이되는 사례가 있습니다. 이 건들의 텍스트 데이터를 이해하고 **민원을 예측하는 이진분류 모형**을 만들어봅니다.
+데이터는 같은 데이터임에도 어떻게 수집, 가공, 분석하느냐에 따라 다양한 가치를 창출해낼 수 있다는 점에서 매우 흥미롭다. **텍스트 분석을 통해서 내가 예측했던 결과를 확인해보고 더 나아가 내가 예상치 못한 새로운 가치 또한 발견해보는 경험을 하고 싶다.**
 
 <br>
 
-```{r gis, echo=FALSE, out.width = "70%", fig.align='center'}
-knitr::include_graphics("img/complaint.png")
+```{r network, echo=FALSE, out.width = "70%", fig.align='center'}
+knitr::include_graphics("textmining.png")
 ```
-
