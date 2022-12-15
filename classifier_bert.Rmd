@@ -30,3 +30,469 @@ library(ggplot2, warn.conflicts = FALSE)
 
 xaringanExtra :: use_panelset()
 ```
+
+# 텍스트 데이터 수집
+```{r scrap, echo=TRUE, fig.align="center", out.width="50%"}
+library(koscrap)
+
+client_id <- "d20X1HTRRYSrYFd3PPkM"
+client_secret <- "eAnNTHdYhA"
+
+keyword <- "월드컵"
+
+n <- 1000
+
+news_worldcup_date <- search_naver(
+  keyword, client_id = client_id, client_secret = client_secret,
+  do_done = TRUE, max_record = n
+)
+
+
+news_worldcup_sim <- search_naver(
+  keyword, client_id = client_id, client_secret = client_secret, sort = "sim",
+  do_done = TRUE, max_record = n
+)
+
+dim(news_worldcup_date)
+dim(news_worldcup_sim)
+
+head(news_worldcup_date)
+
+tail(news_worldcup_sim)
+
+create_wordcloud <- function(data, remove_n = 5, min_freq = 5, background = "white") {
+  data %>% 
+    filter(nchar(description_text) > 0) %>%   
+    tidytext::unnest_tokens(noun, description_text, bitTA::morpho_mecab, type = "noun") %>% 
+    group_by(noun) %>% 
+    count() %>% 
+    arrange(desc(n)) %>%     
+    ungroup() %>%
+    filter(n >= min_freq) %>% 
+    filter(row_number() > remove_n) %>% 
+    wordcloud2::wordcloud2(backgroundColor = background, 
+                           fontFamily = "NanumSquare")
+}
+
+library(bitReport)
+
+news_worldcup_date %>% 
+  create_wordcloud(remove_n = 20, min_freq = 2)
+
+news_worldcup_sim %>% 
+  create_wordcloud(remove_n = 20, min_freq = 2)
+```
+
+# 정규표현식의 이해
+```{r map, echo=TRUE}
+persons <- c("벤투", "손흥민", "조규성", "이강인", "호날두", "메시")
+
+persons %>% 
+  purrr::map_int(
+    function(x) {
+      news_worldcup_sim %>% 
+        filter(stringr::str_detect(description_text, x)) %>% 
+        tally() %>% 
+        pull()
+    }
+  )
+
+persons <- c("벤투", "손흥민", "조규성", "이강인", "호날두", "메시")
+
+persons %>% 
+  purrr::map_dbl(
+    function(x) {
+      news_worldcup_sim %>% 
+        filter(stringr::str_detect(description_text, x)) %>% 
+        mutate(n_talk = stringr::str_count(description_text, x)) %>% 
+        summarise(n_avg = mean(n_talk, na.rm = TRUE)) %>% 
+        pull()
+    }
+  )
+```
+
+# Document Term Matrix의 이해
+```{r dtm, echo=TRUE}
+news_worldcup_sim <- news_worldcup_sim %>% 
+  mutate(id = row_number())
+
+library(tidyverse)
+library(bitTA)
+library(tidytext)
+library(tm)
+
+dtm_tf <- news_worldcup_sim %>% 
+  unnest_noun_ngrams(term, description_text, n = 1, type = "noun2") %>% 
+  filter(!str_detect(term, "[[a-zA-Z]]+")) %>%  
+  count(id, term, sort = TRUE) %>% 
+  cast_dtm(id, term, n)
+
+tm::inspect(dtm_tf)
+
+dtm_tfidf <- news_worldcup_sim %>% 
+  unnest_noun_ngrams(term, description_text, n = 1, type = "noun2") %>% 
+  filter(!str_detect(term, "[[a-zA-Z]]+")) %>%  
+  count(id, term, sort = TRUE) %>% 
+  cast_dtm(id, term, n, weighting = tm::weightTfIdf)
+
+tm::inspect(dtm_tfidf)
+```
+
+# Correlation Analysis
+```{r corr, echo=TRUE}
+persons <- c("벤투", "손흥민", "조규성", "이강인", "호날두", "메시")
+
+persons %>% 
+  purrr::map(
+    function(x) tm::findAssocs(dtm_tf, terms = x, corlimit = 0.4)
+  )
+
+persons <- c("벤투", "손흥민", "조규성", "이강인", "호날두", "메시")
+
+persons %>% 
+  purrr::map(
+    function(x) tm::findAssocs(dtm_tfidf, terms = x, corlimit = 0.4)
+  )
+```
+
+# 연관분석
+```{r cor_dtm, echo=TRUE, fig.align="center", out.width="50%"}
+dtm_bin_tf <- news_worldcup_sim %>% 
+  unnest_noun_ngrams(term, description_text, n = 1, type = "noun2") %>% 
+  filter(!str_detect(term, "[[a-zA-Z]]+")) %>%  
+  count(id, term, sort = TRUE) %>% 
+  cast_dtm(id, term, n, weighting = tm::weightBin)
+
+stop_words <- dtm_bin_tf %>% 
+  apply(2, sum) %>% 
+  sort(decreasing = TRUE) %>% 
+  "["(1:30) %>% 
+  names()
+stop_words
+
+dtm_bin_tf <- news_worldcup_sim %>% 
+  unnest_noun_ngrams(term, description_text, n = 1, type = "noun2") %>% 
+  filter(!term %in% stop_words) %>% 
+  filter(!str_detect(term, "[[a-zA-Z]]+|[[0-9]]+")) %>%  
+  count(id, term, sort = TRUE) %>% 
+  cast_dtm(id, term, n, weighting = tm::weightBin)
+
+library("arules")
+
+trans <- as(dtm_bin_tf %>% as.matrix(), "transactions")
+trans
+
+summary(trans)
+
+rules <- apriori(trans, parameter = list(support = 0.05, conf = 0.6, target = "rules"))
+
+summary(rules)
+
+arules::inspect(rules[1:5])
+
+library("arulesViz")
+
+plot(rules)
+
+rule2 <- sort(rules, by = "confidence")
+inspect(head(rule2, n = 10))
+
+plot(rules, method = "grouped")
+
+plot(rules, method = "graph")
+```
+
+# 단어의 계층적 군집분석
+```{r dim_dtm, echo=TRUE, fig.align="center", out.width="50%"}
+dim(dtm_bin_tf)
+
+compact_bin <- tm::removeSparseTerms(dtm_bin_tf, sparse = 0.985) %>%
+  as.matrix(compact_bin)
+
+dim(compact_bin)
+
+mat <- t(compact_bin)
+
+dist_matrix <- dist(scale(mat))
+
+fit <- hclust(dist_matrix, method = "ward.D")
+fit
+
+k <- 6
+
+plot(fit)
+cluster_list <- rect.hclust(fit, k = k)
+
+k %>% 
+  seq() %>% 
+  purrr::map(
+    function(x) {
+      cluster_list[[x]]
+    }
+  )
+```
+
+# 기사의 계층적 군집분석
+```{r news, echo=TRUE, fig.align="center", out.width="50%"}
+
+mat <- compact_bin
+
+dist_matrix <- dist(scale(mat))
+
+fit <- hclust(dist_matrix, method = "ward.D")
+fit
+
+k <- 6
+
+plot(fit)
+cluster_list <- rect.hclust(fit, k = k)
+
+clusters <- k %>% 
+  seq() %>% 
+  purrr::map(
+    function(x) {
+      cluster_list[[x]]
+    }
+  )
+
+clusters %>% 
+  purrr::map_int(length)
+
+news_worldcup_sim %>% 
+  filter(id %in% clusters[[1]]) %>% 
+  select(title_text) %>% 
+  head(n = 20)
+
+news_worldcup_sim %>% 
+  filter(id %in% clusters[[1]]) %>% 
+  unnest_noun_ngrams(term, description_text, n = 1) %>% 
+  filter(!str_detect(term, "[[a-zA-Z]]+|[[0-9]]+")) %>%  
+  count(term, sort = TRUE) %>% 
+  filter(nchar(term) > 1) %>%   
+  filter(row_number() >= 15) %>% 
+  wordcloud2::wordcloud2(fontFamily = "NanumSquare")
+```
+
+# Topic 분석
+```{r topic, echo=TRUE, fig.align="center", out.width="50%"}
+compact_tf <- tm::removeSparseTerms(dtm_tf, sparse = 0.98) %>%
+  as.matrix()
+
+dim(compact_tf)
+
+otf <- apply(compact_tf, 2, sum) %>% 
+  sort(decreasing = TRUE) %>% 
+  names()
+
+stop_word <- otf[1:20]
+stop_word
+
+compact_tf2 <- compact_tf[, !colnames(compact_tf) %in% stop_word] 
+dim(compact_tf2)
+
+compact_tf2 %>% 
+  apply(2, sum) 
+library("topicmodels")
+
+k <- 2:10
+
+models <- k %>% 
+  purrr::map(
+    function(x) {
+      topicmodels::LDA(compact_tf2, k = x, control = list(seed = 123))
+    }
+  )
+
+log_ikelihood <- models %>% 
+  purrr::map_dbl(logLik)
+log_ikelihood
+
+which.max(log_ikelihood)
+
+alpha <- models %>% 
+  purrr::map_dbl(slot, "alpha")
+alpha
+
+which.min(alpha)
+
+prob <- tidytext::tidy(models[[9]], matrix = "beta")
+prob
+top_prob <- prob %>% 
+  group_by(topic) %>% 
+  top_n(10, beta) %>% 
+  ungroup() %>% 
+  arrange(topic, -beta)
+top_prob
+top_prob %>% 
+  mutate(term = reorder(term, beta)) %>% 
+  ggplot(aes(x = term,  y = beta, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~topic, scales = "free") +
+  coord_flip()
+
+news_gamma <- tidytext::tidy(models[[9]], matrix = "gamma") %>% 
+  mutate(gamma = gamma * 100)
+
+news_gamma
+
+terms(models[[9]], 10)[, 1]
+
+news_gamma %>%
+  filter(topic == 1) %>%
+  filter(gamma >= 95) %>%
+  arrange(desc(gamma))
+
+news_worldcup_sim %>% 
+  filter(id %in% "61") %>% 
+  select(title_text) %>% 
+  pull()
+news_worldcup_sim %>% 
+  filter(id %in% "61") %>% 
+  select(description_text) %>% 
+  pull()
+
+news_gamma %>%
+  filter(document %in% "1") %>% 
+  arrange(desc(gamma))
+
+top_prob %>% 
+  filter(topic == 6) %>% 
+  arrange(desc(beta)) 
+```
+
+# 이진분류 모형
+```{r classifier_model, echo=TRUE, fig.align="center", out.width="50%"}
+library(tidyverse)
+library(tidymodels)
+library(text2vec)
+library(glmnet)
+library(caret)
+library(bitTA)
+
+news_worldcup_yna <- news_worldcup_sim %>% 
+  mutate(yna_flag = ifelse(stringr::str_detect(originallink, "www.yna.co.kr"), 1, 0))
+
+news_worldcup_yna %>% 
+  count(yna_flag) %>% 
+  mutate(ratio = n /sum(n) * 100)
+
+n_yna <- news_worldcup_yna %>% 
+  filter(yna_flag == 1) %>% 
+  tally() %>% 
+  pull()
+
+n_not_yna <- news_worldcup_yna %>% 
+  filter(yna_flag == 0) %>% 
+  tally() %>% 
+  pull()
+
+set.seed(123)
+idx_sample <- sample(seq(n_not_yna), size = n_yna)
+
+subset_not_yna <- news_worldcup_yna %>% 
+  filter(yna_flag == 0) %>% 
+  filter(row_number() %in% idx_sample)
+
+subset_yna <- news_worldcup_yna %>% 
+  filter(yna_flag == 1)
+
+news_sample_yna <- bind_rows(subset_not_yna, subset_yna)
+
+news_sample_yna %>% 
+  count(yna_flag)
+
+set.seed(123)
+news_split <- initial_split(news_sample_yna, strata = yna_flag)
+
+train <- rsample::training(news_split)
+test <- rsample::testing(news_split)
+
+dim(train)
+dim(test)
+
+train %>% 
+  count(yna_flag)
+
+test %>% 
+  count(yna_flag)
+
+
+token_fun <- bitTA::morpho_mecab
+
+it_train <- itoken(train$description_text, 
+                   tokenizer = token_fun, 
+                   ids = train$id, 
+                   progressbar = FALSE)
+
+it_test <- itoken(test$description_text, 
+                  tokenizer = token_fun, 
+                  ids = test$id, 
+                  progressbar = FALSE)
+
+vocab <- create_vocabulary(it_train)
+
+tail(vocab, n = 10)
+
+
+vectorizer <-  vocab_vectorizer(vocab)
+
+dtm_train_tf <- text2vec::create_dtm(it_train, vectorizer)
+dim(dtm_train_tf)
+
+dtm_test_tf <- text2vec::create_dtm(it_test, vectorizer)
+dim(dtm_test_tf)
+
+vocab_bigram <- create_vocabulary(it_train, ngram = c(1L, 2L))
+dim(vocab_bigram)
+
+vocab_bigram <- vocab_bigram %>% 
+  prune_vocabulary(term_count_min = 10,
+                   doc_proportion_max = 0.5)
+dim(vocab_bigram)
+
+vectorizer_bigram <- vocab_vectorizer(vocab_bigram)
+
+dtm_train_bigram <- create_dtm(it_train, vectorizer_bigram)
+dim(dtm_train_bigram)
+
+dtm_test_bigram  <- create_dtm(it_test, vectorizer_bigram)
+dim(dtm_test_bigram)
+
+tfidf <- TfIdf$new()
+
+dtm_train_tfidf <- fit_transform(dtm_train_tf, tfidf)
+dtm_test_tfidf <- fit_transform(dtm_test_tf, tfidf) 
+
+dim(dtm_train_tf)
+dim(dtm_train_bigram)
+dim(dtm_train_tfidf)
+
+NFOLDS <- 10
+
+classifier_tf <- cv.glmnet(x = dtm_train_tf, y = train$yna_flag, 
+                           family = "binomial",
+                           alpha = 1,
+                           parallel = TRUE, 
+                           keep = TRUE)
+
+library(broom)
+
+coefs_tf <- classifier_tf$glmnet.fit %>%
+  tidy() %>%
+  filter(lambda == classifier_tf$lambda.1se)
+coefs_tf 
+
+coefs_tf %>%
+  group_by(estimate > 0) %>%
+  top_n(10, abs(estimate)) %>%
+  ungroup() %>%
+  ggplot(aes(fct_reorder(term, estimate), estimate, fill = estimate > 0)) +
+  geom_col(alpha = 0.8, show.legend = FALSE) +
+  coord_flip() +
+  labs(
+    x = NULL,
+    title = "예측에 영향을 주는 모델의 계수들 with TF",
+    subtitle = "네이버 월드컵 관련 뉴스"
+  )
+
+```
